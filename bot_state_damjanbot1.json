@@ -4,11 +4,13 @@
   "timeframe": "5m",
   "symbol": "BTCUSDT",
   "side": "LONG",
-  "size": "0.2083333333333333333333333332",
+  "size": "0.02083333333333333333333333334",
   "entry_price": "80000",
   "realized_pnl": "0",
   "trades_count": 1,
-  "last_trade_time": "2026-05-08T10:34:14.328896",
-  "last_alert_time": "2026-05-08T10:34:14.328425",
-  "last_alert_hash": "damjanbot1:buy:80000"
+  "last_trade_time": "2026-05-08T10:51:40.908230",
+  "last_alert_time": "2026-05-08T10:51:40.907712",
+  "last_alert_hash": "damjanbot1:buy:80000",
+  "current_balance": "1000.0",
+  "initial_balance": "1000.0"
 }

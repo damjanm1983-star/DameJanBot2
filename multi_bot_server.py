@@ -68,6 +68,10 @@ class BotInstance:
         self.last_alert_time = None
         self.last_alert_hash = None
         
+        # Balance tracking - start with $1000
+        self.initial_balance = Decimal("1000.0")
+        self.current_balance = Decimal("1000.0")
+        
         # Dedup tracking
         self.recent_alerts: Dict[str, datetime] = {}
         
@@ -75,6 +79,7 @@ class BotInstance:
         self._load_state()
         
         logger.info(f"✅ {self.name} initialized ({self.timeframe})")
+        logger.info(f"   Balance: ${self.current_balance:,.2f}")
         logger.info(f"   State file: {self.state_file}")
     
     def _load_state(self):
@@ -88,7 +93,9 @@ class BotInstance:
                 self.realized_pnl = Decimal(str(data.get('realized_pnl', '0')))
                 self.trades_count = data.get('trades_count', 0)
                 self.last_trade_time = data.get('last_trade_time')
-                logger.info(f"📂 {self.name}: Loaded state - {self.side}")
+                self.current_balance = Decimal(str(data.get('current_balance', '1000.0')))
+                self.initial_balance = Decimal(str(data.get('initial_balance', '1000.0')))
+                logger.info(f"📂 {self.name}: Loaded state - {self.side}, Balance: ${self.current_balance:,.2f}")
             except Exception as e:
                 logger.warning(f"⚠️ {self.name}: Could not load state: {e}")
     
@@ -107,7 +114,9 @@ class BotInstance:
                     'trades_count': self.trades_count,
                     'last_trade_time': self.last_trade_time,
                     'last_alert_time': self.last_alert_time,
-                    'last_alert_hash': self.last_alert_hash
+                    'last_alert_hash': self.last_alert_hash,
+                    'current_balance': str(self.current_balance),
+                    'initial_balance': str(self.initial_balance)
                 }, f, indent=2)
         except Exception as e:
             logger.error(f"❌ {self.name}: Could not save state: {e}")
@@ -132,12 +141,20 @@ class BotInstance:
         return False
     
     def _calculate_position_size(self, price: Decimal) -> Decimal:
-        balance = self.engine.simulated_balance
-        allocation = Decimal("0.50")  # 50%
-        margin = Decimal("0.30")      # 30%
-        leverage = Decimal("1") / margin
-        position_value = balance * allocation * leverage
+        balance = self.current_balance
+        allocation = Decimal("0.50")  # 50% of balance
+        margin = Decimal("0.30")      # 30% margin
+        leverage = Decimal("1") / margin  # ~3.33x
+        
+        # Calculate: 50% of $1000 = $500 margin
+        # With 30% margin, position value = margin / 0.30 = $500 / 0.30 = $1666.67
+        margin_amount = balance * allocation  # $500
+        position_value = margin_amount / margin  # $1666.67
         quantity = position_value / price if price > 0 else Decimal("0.01")
+        
+        logger.info(f"📊 {self.name}: Balance=${balance:,.2f}, Margin Amount=${margin_amount:,.2f}, Leverage={leverage:.2f}x")
+        logger.info(f"📊 {self.name}: Position Value=${position_value:,.2f}, Quantity={quantity:.6f} BTC")
+        
         return quantity
     
     def _calculate_unrealized_pnl(self, current_price: Decimal) -> Decimal:
@@ -231,7 +248,9 @@ class BotInstance:
             realized_pnl = (self.entry_price - price) * self.size
         
         self.realized_pnl += realized_pnl
+        self.current_balance += realized_pnl
         logger.info(f"💰 {self.name}: Realized PnL: ${realized_pnl:.4f}")
+        logger.info(f"💰 {self.name}: Updated Balance: ${self.current_balance:,.2f}")
         
         # Open new
         new_side = "SHORT" if action == 'sell' else "LONG"
@@ -273,16 +292,40 @@ class BotInstance:
         except Exception as e:
             logger.warning(f"Could not log alert: {e}")
     
+    def _get_current_btc_price(self) -> Decimal:
+        """Fetch current BTC price from Binance Testnet"""
+        try:
+            from binance_api_client import BinanceApiClient
+            import os
+            client = BinanceApiClient(
+                api_key=os.getenv('BINANCE_API_KEY', 'test'),
+                api_secret=os.getenv('BINANCE_SECRET_KEY', 'test'),
+                paper_mode=True
+            )
+            result = client.get_ticker_price('BTCUSDT')
+            if result.get('success'):
+                return Decimal(str(result['data']['price']))
+        except Exception as e:
+            logger.warning(f"Could not fetch BTC price: {e}")
+        return Decimal("80000")  # Fallback
+    
     def get_status(self) -> Dict[str, Any]:
-        current_price = Decimal("80000")  # Placeholder
+        # Get current BTC price from Binance for live PnL
+        current_price = self._get_current_btc_price()
         unrealized_pnl = self._calculate_unrealized_pnl(current_price)
         total_pnl = self.realized_pnl + unrealized_pnl
+        
+        # Calculate return percentage
+        return_pct = ((self.current_balance - self.initial_balance) / self.initial_balance * 100) if self.initial_balance > 0 else 0
         
         trades = self.engine.get_trade_history()
         winning = len([t for t in trades if t.realized_pnl > 0])
         losing = len([t for t in trades if t.realized_pnl < 0])
         total = winning + losing
         win_rate = (winning / total * 100) if total > 0 else 0
+        
+        # Calculate position value
+        position_value = self.size * current_price if self.side != "FLAT" else Decimal("0")
         
         return {
             "bot": {
@@ -299,9 +342,16 @@ class BotInstance:
                 "side": self.side,
                 "size": str(self.size),
                 "entry_price": str(self.entry_price) if self.entry_price else None,
+                "current_price": str(current_price),
+                "position_value": str(position_value),
                 "unrealized_pnl": str(unrealized_pnl),
                 "realized_pnl": str(self.realized_pnl),
                 "total_pnl": str(total_pnl)
+            },
+            "balance": {
+                "initial": str(self.initial_balance),
+                "current": str(self.current_balance),
+                "return_pct": f"{float(return_pct):,.2f}%"
             },
             "performance": {
                 "total_trades": total,
@@ -310,7 +360,9 @@ class BotInstance:
                 "win_rate": f"{win_rate:.1f}%",
                 "realized_pnl": f"${float(self.realized_pnl):,.2f}",
                 "unrealized_pnl": f"${float(unrealized_pnl):,.2f}",
-                "total_pnl": f"${float(total_pnl):,.2f}"
+                "total_pnl": f"${float(total_pnl):,.2f}",
+                "current_balance": f"${float(self.current_balance):,.2f}",
+                "initial_balance": f"${float(self.initial_balance):,.2f}"
             }
         }
 
@@ -555,6 +607,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         status = bot.get_status()
         pos = status['position']
         perf = status['performance']
+        bal = status['balance']
         
         side = pos['side']
         side_class = 'position-long' if side == 'LONG' else 'position-short' if side == 'SHORT' else 'position-flat'
@@ -563,6 +616,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         realized = float(pos['realized_pnl'])
         total = unrealized + realized
         
+        current_price = float(pos['current_price']) if pos['current_price'] else 0
+        entry_price = float(pos['entry_price']) if pos['entry_price'] else 0
+        position_value = float(pos['position_value']) if pos['position_value'] else 0
+        
+        # Calculate price change percentage
+        price_change_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
+        
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -570,89 +630,164 @@ class DashboardHandler(BaseHTTPRequestHandler):
             <title>{bot.name} Dashboard</title>
             <meta http-equiv="refresh" content="5">
             <style>
-                body {{ font-family: Arial; background: #0a0e27; color: white; padding: 20px; margin: 0; }}
-                .container {{ max-width: 1000px; margin: 0 auto; }}
+                body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #0a0e27; color: white; padding: 20px; margin: 0; }}
+                .container {{ max-width: 1200px; margin: 0 auto; }}
                 h1 {{ color: #00d4aa; border-bottom: 2px solid #00d4aa; padding-bottom: 10px; }}
                 .back {{ color: #8892b0; text-decoration: none; margin-bottom: 20px; display: inline-block; }}
-                .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px; }}
-                .card {{ background: #151b3d; padding: 20px; border-radius: 12px; border: 1px solid #2a3362; }}
-                .card h2 {{ margin-top: 0; color: #8892b0; font-size: 14px; text-transform: uppercase; }}
-                .metric {{ font-size: 36px; font-weight: bold; color: #00d4aa; }}
+                .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-top: 20px; }}
+                .card {{ background: #151b3d; padding: 25px; border-radius: 12px; border: 1px solid #2a3362; }}
+                .card h2 {{ margin-top: 0; color: #8892b0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }}
+                .metric {{ font-size: 42px; font-weight: bold; color: #00d4aa; margin: 15px 0; }}
                 .metric.red {{ color: #ff6b6b; }}
                 .position-long {{ color: #00d4aa; }}
                 .position-short {{ color: #ff6b6b; }}
                 .position-flat {{ color: #8892b0; }}
-                .detail {{ color: #8892b0; margin-top: 10px; line-height: 1.6; }}
+                .detail {{ color: #8892b0; margin-top: 10px; line-height: 1.8; font-size: 14px; }}
                 .detail strong {{ color: white; }}
                 .pnl-positive {{ color: #00d4aa; }}
                 .pnl-negative {{ color: #ff6b6b; }}
                 .summary-bar {{ display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }}
-                .summary-item {{ background: #1a1f3d; padding: 15px 25px; border-radius: 10px; text-align: center; }}
-                .summary-value {{ font-size: 24px; font-weight: bold; }}
+                .summary-item {{ background: #1a1f3d; padding: 20px 30px; border-radius: 10px; text-align: center; min-width: 140px; }}
+                .summary-value {{ font-size: 28px; font-weight: bold; }}
                 .summary-label {{ font-size: 11px; color: #8892b0; text-transform: uppercase; margin-top: 5px; }}
+                .balance-card {{ background: linear-gradient(135deg, #0d2b1f 0%, #151b3d 100%); border-left: 4px solid #00d4aa; }}
+                .stats-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }}
+                .stat-row {{ display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2a3362; }}
+                .stat-label {{ color: #8892b0; }}
+                .stat-value {{ color: white; font-weight: bold; }}
+                .live-indicator {{ display: inline-block; width: 8px; height: 8px; background: #00d4aa; border-radius: 50%; margin-right: 8px; animation: pulse 2s infinite; }}
+                @keyframes pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.5; }} }}
             </style>
         </head>
         <body>
             <div class="container">
                 <a href="/" class="back">← Back to Main Dashboard</a>
-                <h1>{bot.name} Dashboard ({bot.timeframe})</h1>
+                <h1><span class="live-indicator"></span>{bot.name} Dashboard ({bot.timeframe})</h1>
                 
+                <!-- Position Summary -->
                 <div class="summary-bar">
                     <div class="summary-item">
                         <div class="summary-value {side_class}">{side}</div>
                         <div class="summary-label">Position</div>
                     </div>
                     <div class="summary-item">
-                        <div class="summary-value">{float(pos['size']):.4f}</div>
+                        <div class="summary-value">{float(pos['size']):.6f}</div>
                         <div class="summary-label">BTC Size</div>
                     </div>
                     <div class="summary-item">
-                        <div class="summary-value">${float(pos['entry_price']) if pos['entry_price'] else 0:,.0f}</div>
+                        <div class="summary-value">${entry_price:,.2f}</div>
                         <div class="summary-label">Entry Price</div>
                     </div>
                     <div class="summary-item">
-                        <div class="summary-value">{perf['total_trades']}</div>
-                        <div class="summary-label">Trades</div>
+                        <div class="summary-value">${current_price:,.2f}</div>
+                        <div class="summary-label">Current Price</div>
                     </div>
                     <div class="summary-item">
-                        <div class="summary-value">{perf['win_rate']}</div>
-                        <div class="summary-label">Win Rate</div>
+                        <div class="summary-value {'pnl-positive' if price_change_pct >= 0 else 'pnl-negative'}">
+                            {'+' if price_change_pct >= 0 else ''}{price_change_pct:.2f}%
+                        </div>
+                        <div class="summary-label">Price Change</div>
                     </div>
                 </div>
                 
-                <div class="grid">
+                <!-- Balance Card -->
+                <div class="card balance-card">
+                    <h2>💰 Balance</h2>
+                    <div class="stats-grid">
+                        <div class="stat-row">
+                            <span class="stat-label">Initial Balance</span>
+                            <span class="stat-value">${float(bal['initial']):,.2f}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Current Balance</span>
+                            <span class="stat-value">${float(bal['current']):,.2f}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Total Return</span>
+                            <span class="stat-value {'pnl-positive' if float(bal['current']) >= float(bal['initial']) else 'pnl-negative'}">{bal['return_pct']}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Position Value</span>
+                            <span class="stat-value">${position_value:,.2f}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- P&L Grid -->
+                <div class="grid" style="margin-top: 20px;">
                     <div class="card">
-                        <h2>Unrealized PnL</h2>
+                        <h2>📊 Unrealized PnL (Live)</h2>
                         <div class="metric {'pnl-positive' if unrealized >= 0 else 'pnl-negative'}">
                             {'+' if unrealized > 0 else ''}${unrealized:,.2f}
                         </div>
-                        <div class="detail">Current open position</div>
+                        <div class="detail">
+                            <strong>Entry:</strong> ${entry_price:,.2f}<br>
+                            <strong>Current:</strong> ${current_price:,.2f}<br>
+                            <strong>Size:</strong> {float(pos['size']):.6f} BTC
+                        </div>
                     </div>
                     
                     <div class="card">
-                        <h2>Realized PnL</h2>
+                        <h2>💵 Realized PnL</h2>
                         <div class="metric {'pnl-positive' if realized >= 0 else 'pnl-negative'}">
                             {'+' if realized > 0 else ''}${realized:,.2f}
                         </div>
-                        <div class="detail">Closed trades profit/loss</div>
+                        <div class="detail">Profit/loss from closed trades</div>
                     </div>
                 </div>
                 
-                <div class="card" style="margin-top: 20px; text-align: center;">
-                    <h2>Total PnL (Realized + Unrealized)</h2>
-                    <div class="metric {'pnl-positive' if total >= 0 else 'pnl-negative'}" style="font-size: 48px;">
+                <!-- Total P&L -->
+                <div class="card" style="margin-top: 20px; text-align: center; background: {'linear-gradient(135deg, #0d2b1f 0%, #151b3d 100%)' if total >= 0 else 'linear-gradient(135deg, #2b0d0d 0%, #151b3d 100%)'};">
+                    <h2>🎯 Total P&L (Realized + Unrealized)</h2>
+                    <div class="metric {'pnl-positive' if total >= 0 else 'pnl-negative'}" style="font-size: 56px;">
                         {'+' if total > 0 else ''}${total:,.2f}
                     </div>
                 </div>
                 
-                <div class="card" style="margin-top: 20px;">
-                    <h2>Statistics</h2>
-                    <div class="detail">
-                        <strong>Winning Trades:</strong> {perf['winning_trades']}<br>
-                        <strong>Losing Trades:</strong> {perf['losing_trades']}<br>
-                        <strong>Total Trades:</strong> {perf['total_trades']}<br>
-                        <strong>Configuration:</strong> 50% allocation, 30% margin, ~3.3x leverage<br>
-                        <strong>Mode:</strong> DRY-RUN (Paper Trading)
+                <!-- Statistics -->
+                <div class="grid" style="margin-top: 20px;">
+                    <div class="card">
+                        <h2>📈 Trade Statistics</h2>
+                        <div class="stats-grid">
+                            <div class="stat-row">
+                                <span class="stat-label">Total Trades</span>
+                                <span class="stat-value">{perf['total_trades']}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Winning Trades</span>
+                                <span class="stat-value" style="color: #00d4aa;">{perf['winning_trades']}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Losing Trades</span>
+                                <span class="stat-value" style="color: #ff6b6b;">{perf['losing_trades']}</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Win Rate</span>
+                                <span class="stat-value">{perf['win_rate']}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h2>⚙️ Configuration</h2>
+                        <div class="stats-grid">
+                            <div class="stat-row">
+                                <span class="stat-label">Position Size</span>
+                                <span class="stat-value">50% of Balance</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Margin</span>
+                                <span class="stat-value">30%</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Leverage</span>
+                                <span class="stat-value">~3.3x</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Mode</span>
+                                <span class="stat-value">DRY-RUN</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
