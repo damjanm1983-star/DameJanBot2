@@ -544,7 +544,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             </style>
         </head>
         <body>
-            <h1>🤖 DamJanBot - Multi Bot Dashboard</h1>
+            <h1>DamJanBot - Multi Bot Dashboard</h1>
             <p style="color: #8892b0;">Monitor both your trading strategies in real-time</p>
         """
         
@@ -662,7 +662,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         <body>
             <div class="container">
                 <a href="/" class="back">← Back to Main Dashboard</a>
-                <h1><span class="live-indicator"></span>{bot.name} Dashboard ({bot.timeframe})</h1>
+                <h1>{bot.name} Dashboard ({bot.timeframe})</h1>
                 
                 <!-- Position Summary -->
                 <div class="summary-bar">
@@ -692,7 +692,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 
                 <!-- Balance Card -->
                 <div class="card balance-card">
-                    <h2>💰 Balance</h2>
+                    <h2>Balance</h2>
                     <div class="stats-grid">
                         <div class="stat-row">
                             <span class="stat-label">Initial Balance</span>
@@ -716,7 +716,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 <!-- P&L Grid -->
                 <div class="grid" style="margin-top: 20px;">
                     <div class="card">
-                        <h2>📊 Unrealized PnL (Live)</h2>
+                        <h2>Unrealized PnL (Live)</h2>
                         <div class="metric {'pnl-positive' if unrealized >= 0 else 'pnl-negative'}">
                             {'+' if unrealized > 0 else ''}${unrealized:,.2f}
                         </div>
@@ -728,7 +728,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     </div>
                     
                     <div class="card">
-                        <h2>💵 Realized PnL</h2>
+                        <h2>Realized PnL</h2>
                         <div class="metric {'pnl-positive' if realized >= 0 else 'pnl-negative'}">
                             {'+' if realized > 0 else ''}${realized:,.2f}
                         </div>
@@ -738,7 +738,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 
                 <!-- Total P&L -->
                 <div class="card" style="margin-top: 20px; text-align: center; background: {'linear-gradient(135deg, #0d2b1f 0%, #151b3d 100%)' if total >= 0 else 'linear-gradient(135deg, #2b0d0d 0%, #151b3d 100%)'};">
-                    <h2>🎯 Total P&L (Realized + Unrealized)</h2>
+                    <h2>Total P&L (Realized + Unrealized)</h2>
                     <div class="metric {'pnl-positive' if total >= 0 else 'pnl-negative'}" style="font-size: 56px;">
                         {'+' if total > 0 else ''}${total:,.2f}
                     </div>
@@ -747,7 +747,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 <!-- Statistics -->
                 <div class="grid" style="margin-top: 20px;">
                     <div class="card">
-                        <h2>📈 Trade Statistics</h2>
+                        <h2>Trade Statistics</h2>
                         <div class="stats-grid">
                             <div class="stat-row">
                                 <span class="stat-label">Total Trades</span>
@@ -769,7 +769,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     </div>
                     
                     <div class="card">
-                        <h2>⚙️ Configuration</h2>
+                        <h2>Configuration</h2>
                         <div class="stats-grid">
                             <div class="stat-row">
                                 <span class="stat-label">Position Size</span>
