@@ -347,28 +347,40 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 alert_data = json.loads(raw_body)
                 
                 # Determine which bot based on alert content
-                # Check for bot identifier in the alert
                 bot_id = None
                 
-                # Method 1: Check if message contains bot name
-                raw_str = raw_body.lower()
-                if 'damjanbot1' in raw_str:
-                    bot_id = 'damjanbot1'
-                elif 'damjanbot2' in raw_str:
-                    bot_id = 'damjanbot2'
+                # Method 1: Check for explicit bot_id field
+                if 'bot_id' in alert_data:
+                    bot_id = alert_data['bot_id'].lower()
                 
-                # Method 2: Check strategy field
-                if not bot_id:
-                    strategy = alert_data.get('strategy', '').lower()
-                    if strategy == 'v1':
+                # Method 2: Check for bot field
+                elif 'bot' in alert_data:
+                    bot_val = alert_data['bot'].lower()
+                    if '1' in bot_val or 'bot1' in bot_val:
                         bot_id = 'damjanbot1'
-                    elif strategy == 'v2w':
+                    elif '2' in bot_val or 'bot2' in bot_val:
                         bot_id = 'damjanbot2'
                 
-                # Method 3: Default based on action field name
-                if not bot_id:
-                    # If uses 'action' -> Bot1, if uses 'event' -> Bot2
-                    if 'action' in alert_data:
+                # Method 3: Check strategy field
+                elif 'strategy' in alert_data:
+                    strategy = alert_data['strategy'].lower()
+                    if strategy == 'v1' or strategy == 'bot1':
+                        bot_id = 'damjanbot1'
+                    elif strategy == 'v2w' or strategy == 'v2' or strategy == 'bot2':
+                        bot_id = 'damjanbot2'
+                
+                # Method 4: Check message/comment field for bot name
+                elif 'message' in alert_data:
+                    msg = alert_data['message'].lower()
+                    if 'damjanbot1' in msg or 'bot1' in msg:
+                        bot_id = 'damjanbot1'
+                    elif 'damjanbot2' in msg or 'bot2' in msg:
+                        bot_id = 'damjanbot2'
+                
+                # Method 5: Detect based on field structure
+                # Bot1 uses "action", Bot2 uses "event" (your current setup)
+                else:
+                    if 'action' in alert_data and 'event' not in alert_data:
                         bot_id = 'damjanbot1'
                     elif 'event' in alert_data:
                         bot_id = 'damjanbot2'
@@ -377,11 +389,10 @@ class WebhookHandler(BaseHTTPRequestHandler):
                     result = bots[bot_id].process_alert(alert_data)
                     result['bot_id'] = bot_id
                 else:
-                    # Try all bots if can't determine
-                    results = {}
-                    for bid, bot in bots.items():
-                        results[bid] = bot.process_alert(alert_data)
-                    result = {"success": True, "multi_processed": True, "results": results}
+                    # Default to bot1 if can't determine
+                    logger.warning(f"⚠️ Could not determine bot, defaulting to Bot1")
+                    result = bots['damjanbot1'].process_alert(alert_data)
+                    result['bot_id'] = 'damjanbot1'
                 
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
