@@ -1,0 +1,134 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Heikin Ashi Strategy V2 [Alorse] - Webhook Edition for DamJanBot
+// Adapted for Binance Testnet integration
+
+//@version=5
+strategy("Heikin Ashi Strategy V2 [Alorse] - Webhook", 
+         shorttitle="HAS V2 Webhook", 
+         overlay=true, 
+         pyramiding=0, 
+         currency=currency.USD, 
+         default_qty_type=strategy.percent_of_equity, 
+         default_qty_value=100,
+         initial_capital=10000,
+         commission_type=strategy.commission.percent,
+         commission_value=0.05,
+         slippage=2)
+
+// ======================================================
+// INPUTS
+// ======================================================
+res = input.timeframe(title="Timeframe", defval="60", group="Heikin Ashi Candle")
+hshift = input.int(1, title="Timeframe Shift", group="Heikin Ashi Candle")
+res1 = input.timeframe(title="EMA Timeframe", defval="180", group="Heikin Ashi EMA")
+mhshift = input.int(0, title="EMA Timeframe Shift", group="Heikin Ashi EMA")
+fama = input.int(1, "EMA Period", group="Heikin Ashi EMA")
+test = input.int(1, "EMA Shift", group="Heikin Ashi EMA")
+sloma = input.int(30, "EMA Period", group="Slow EMA")
+slomas = input.int(1, "EMA Shift", group="Slow EMA")
+
+showShort = input.bool(false, title="Show only Long entries", group="Strategy")
+
+macdf = input.bool(false, title="With MACD filter", group="MACD")
+res2 = input.timeframe(title="MACD Time Frame", defval="15", group="MACD")
+macds = input.int(1, title="MACD Shift", group="MACD")
+
+// ======================================================
+// HEIKIN ASHI CALCULATIONS
+// ======================================================
+ha_t = ticker.heikinashi(syminfo.tickerid)
+ha_close = request.security(ha_t, res, close[hshift], barmerge.gaps_off, barmerge.lookahead_on)
+mha_close = request.security(ha_t, res1, close[mhshift], barmerge.gaps_off, barmerge.lookahead_on)
+
+// MACD
+[macdLine, signalLine, histLine] = ta.macd(close, 12, 26, 9)
+macdl = request.security(ha_t, res2, macdLine[macds], barmerge.gaps_off, barmerge.lookahead_on)
+macdsl = request.security(ha_t, res2, signalLine[macds], barmerge.gaps_off, barmerge.lookahead_on)
+
+// Moving Averages
+fma = ta.ema(mha_close[test], fama)
+sma = ta.ema(ha_close[slomas], sloma)
+
+// ======================================================
+// PLOTS
+// ======================================================
+plot(fma, title="MA", color=color.new(color.blue, 0), linewidth=1, style=plot.style_line)
+plot(sma, title="SMA", color=color.new(color.purple, 0), linewidth=1, style=plot.style_line)
+
+// ======================================================
+// STRATEGY LOGIC
+// ======================================================
+// Current position tracking
+prevPos = strategy.position_size[1]
+wasLong = prevPos > 0
+wasShort = prevPos < 0
+
+// Signal conditions
+golong = ta.crossover(fma, sma) and (macdl > macdsl or macdf == false)
+goshort = ta.crossunder(fma, sma) and (macdl < macdsl or macdf == false)
+
+// Execute on next bar to avoid repainting
+buyExec = golong[1] and not wasLong
+sellExec = goshort[1] and not wasShort
+
+// ======================================================
+// ORDER EXECUTION
+// ======================================================
+if buyExec
+    strategy.entry("Buy", strategy.long, comment="BUY")
+
+if showShort == false and sellExec
+    strategy.entry("Sell", strategy.short, comment="SELL")
+else if showShort and sellExec
+    strategy.close("Buy", comment="CLOSE_LONG")
+
+// ======================================================
+// WEBHOOK ALERTS - For DamJanBot Integration
+// ======================================================
+// Create ONE alert in TradingView:
+// Condition: Order fill on "Heikin Ashi Strategy V2 [Alorse] - Webhook"
+// Message: {"action":"{{strategy.order.action}}","symbol":"{{ticker}}","price":{{close}}}
+// Webhook URL: http://89.167.60.3:8000/webhook
+// Frequency: Once Per Bar Close
+
+// Alternative: Use alert() function for immediate webhook
+alertMessageBuy = '{"action":"buy","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + '}'
+alertMessageSell = '{"action":"sell","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + '}'
+
+if buyExec
+    alert(alertMessageBuy, alert.freq_once_per_bar)
+
+if sellExec
+    alert(alertMessageSell, alert.freq_once_per_bar)
+
+// ======================================================
+// VISUALS
+// ======================================================
+inLong = strategy.position_size > 0
+inShort = strategy.position_size < 0
+
+bgcolor(inLong ? color.new(color.green, 90) : inShort ? color.new(color.red, 90) : na)
+
+plotshape(buyExec, location=location.belowbar, color=color.new(color.lime, 0), style=shape.labelup, text="BUY", size=size.small)
+plotshape(sellExec, location=location.abovebar, color=color.new(color.red, 0), style=shape.labeldown, text="SELL", size=size.small)
+
+// ======================================================
+// INFO PANEL
+// ======================================================
+var table infoPanel = table.new(position.top_right, 2, 6, bgcolor=color.new(color.black, 80), frame_width=1)
+
+if barstate.islast
+    table.cell(infoPanel, 0, 0, "Heikin Ashi Bot", text_color=color.white, text_size=size.small)
+    table.cell(infoPanel, 1, 0, "v2.0", text_color=color.gray, text_size=size.small)
+    table.cell(infoPanel, 0, 1, "Position:", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoPanel, 1, 1, inLong ? "LONG" : inShort ? "SHORT" : "FLAT", 
+               text_color=inLong ? color.green : inShort ? color.red : color.gray, text_size=size.tiny)
+    table.cell(infoPanel, 0, 2, "FMA:", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoPanel, 1, 2, str.tostring(fma, format.mintick), text_color=color.blue, text_size=size.tiny)
+    table.cell(infoPanel, 0, 3, "SMA:", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoPanel, 1, 3, str.tostring(sma, format.mintick), text_color=color.purple, text_size=size.tiny)
+    table.cell(infoPanel, 0, 4, "MACD Filter:", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoPanel, 1, 4, macdf ? (macdl > macdsl ? "BULL" : "BEAR") : "OFF", 
+               text_color=macdsl and macdl > macdsl ? color.green : color.red, text_size=size.tiny)
+    table.cell(infoPanel, 0, 5, "Webhook:", text_color=color.gray, text_size=size.tiny)
+    table.cell(infoPanel, 1, 5, "READY", text_color=color.green, text_size=size.tiny)
