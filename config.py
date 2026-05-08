@@ -13,9 +13,10 @@ class Config:
 
         # Trading params (configurable)
         self.symbol = os.getenv("SYMBOL", "BTCUSDT")
-        self.position_allocation_percent = float(os.getenv("POSITION_ALLOCATION_PERCENT", "0.25"))
+        self.position_allocation_percent = float(os.getenv("POSITION_ALLOCATION_PERCENT", "0.50"))  # 50% of balance
         self.target_leverage = int(os.getenv("TARGET_LEVERAGE", "3"))
         self.max_notional_cap_usdt = float(os.getenv("MAX_NOTIONAL_CAP_USDT", "50000.0"))
+        self.margin_percent = float(os.getenv("MARGIN_PERCENT", "0.30"))  # 30% margin
 
         # Startup safety
         self.startup_safe_mode = os.getenv("STARTUP_SAFE_MODE", "true").lower() in ("true", "1", "yes")

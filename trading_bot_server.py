@@ -109,8 +109,8 @@ class TradingBot:
         
         logger.info("=" * 60)
         logger.info("🤖 Trading Bot initialized in DRY-RUN mode")
-        logger.info(f"📊 Starting balance: $1000.00")
-        logger.info(f"📈 Position sizing: 50% of balance, 30% margin")
+        logger.info(f"📊 Starting balance: $10,000.00")
+        logger.info(f"📈 Position sizing: 50% of balance, 30% margin (~3.3x leverage)")
         logger.info(f"💾 State file: {STATE_FILE}")
         logger.info(f"🔄 Current position: {self.position_state.side} {self.position_state.size} BTC")
         if self.position_state.entry_price:
@@ -174,7 +174,7 @@ class TradingBot:
     def _get_alert_hash(self, alert_data: Dict[str, Any]) -> str:
         """Generate a hash for alert deduplication"""
         # Hash based on action, symbol, and price (rounded to reduce noise)
-        action = alert_data.get('action', '').lower()
+        action = alert_data.get('action', alert_data.get('event', '')).lower()
         symbol = alert_data.get('symbol', '')
         price = alert_data.get('price', 0)
         # Round price to nearest dollar for dedup purposes
@@ -202,11 +202,21 @@ class TradingBot:
         return False
     
     def _calculate_position_size(self, price: Decimal) -> Decimal:
-        """Calculate position size based on config"""
-        balance = Decimal("1000.0")
-        allocation = Decimal("0.50")  # 50%
-        position_value = balance * allocation
+        """Calculate position size based on config - 50% of balance with 30% margin"""
+        # Get current balance (starts at 1000, updates with realized PnL)
+        balance = self.engine.simulated_balance
+        allocation = Decimal("0.50")  # 50% of balance
+        margin = Decimal("0.30")      # 30% margin
+        
+        # Calculate position value with leverage from margin
+        # 30% margin = ~3.33x leverage
+        leverage = Decimal("1") / margin  # 3.33x
+        position_value = balance * allocation * leverage
         quantity = position_value / price if price > 0 else Decimal("0.01")
+        
+        logger.info(f"📊 Balance: ${balance:,.2f} | Allocation: 50% | Margin: 30% | Leverage: {leverage:.2f}x")
+        logger.info(f"📊 Position Value: ${position_value:,.2f} | Quantity: {quantity:.6f} BTC")
+        
         return quantity
     
     def _calculate_unrealized_pnl(self, current_price: Decimal) -> Decimal:
@@ -222,7 +232,8 @@ class TradingBot:
     def process_alert(self, alert_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process incoming TradingView alert with deduplication and proper flip logic"""
         
-        action = alert_data.get('action', '').lower()
+        # Handle user's TradingView alert format: {"event":"buy",...}
+        action = alert_data.get('action', alert_data.get('event', '')).lower()
         symbol = alert_data.get('symbol', 'BTCUSDT')
         price = Decimal(str(alert_data.get('price', 0)))
         
@@ -407,10 +418,27 @@ class TradingBot:
         }
     
     def get_status(self) -> Dict[str, Any]:
-        """Get current bot status"""
+        """Get current bot status with complete statistics"""
         # Get current price for unrealized PnL calculation
         current_price = Decimal("71500")  # Placeholder - would fetch from API
         unrealized_pnl = self._calculate_unrealized_pnl(current_price)
+        total_pnl = self.position_state.realized_pnl + unrealized_pnl
+        
+        # Calculate win/loss stats
+        trades = self.engine.get_trade_history()
+        winning_trades = len([t for t in trades if t.realized_pnl > 0])
+        losing_trades = len([t for t in trades if t.realized_pnl < 0])
+        total_trades = winning_trades + losing_trades
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+        
+        # Calculate average PnL
+        avg_win = sum([float(t.realized_pnl) for t in trades if t.realized_pnl > 0]) / winning_trades if winning_trades > 0 else 0
+        avg_loss = sum([float(t.realized_pnl) for t in trades if t.realized_pnl < 0]) / losing_trades if losing_trades > 0 else 0
+        
+        # Get current balance
+        current_balance = self.engine.simulated_balance
+        initial_balance = Decimal("10000.0")
+        total_return_pct = ((current_balance - initial_balance) / initial_balance * 100) if initial_balance > 0 else 0
         
         # Check for recent alert log entries
         recent_alerts = self._get_recent_alert_log()
@@ -437,12 +465,32 @@ class TradingBot:
                 "size": str(self.position_state.size),
                 "entry_price": str(self.position_state.entry_price) if self.position_state.entry_price else None,
                 "unrealized_pnl": str(unrealized_pnl),
-                "realized_pnl": str(self.position_state.realized_pnl)
+                "realized_pnl": str(self.position_state.realized_pnl),
+                "total_pnl": str(total_pnl),
+                "current_balance": str(current_balance),
+                "initial_balance": str(initial_balance)
             },
             "performance": {
-                "total_trades": self.position_state.trades_count,
+                "total_trades": total_trades,
+                "winning_trades": winning_trades,
+                "losing_trades": losing_trades,
+                "win_rate": f"{win_rate:.1f}%",
+                "avg_win": f"${avg_win:,.2f}",
+                "avg_loss": f"${avg_loss:,.2f}",
                 "realized_pnl": f"${float(self.position_state.realized_pnl):,.2f}",
-                "unrealized_pnl": f"${float(unrealized_pnl):,.2f}"
+                "unrealized_pnl": f"${float(unrealized_pnl):,.2f}",
+                "total_pnl": f"${float(total_pnl):,.2f}",
+                "total_return_pct": f"{float(total_return_pct):,.2f}%",
+                "current_balance": f"${float(current_balance):,.2f}",
+                "initial_balance": f"${float(initial_balance):,.2f}"
+            },
+            "configuration": {
+                "symbol": self.config.symbol,
+                "position_allocation": f"{self.config.position_allocation_percent*100:.0f}%",
+                "margin_percent": f"{self.config.margin_percent*100:.0f}%",
+                "effective_leverage": f"{1/self.config.margin_percent:.1f}x",
+                "paper_mode": self.config.paper_mode,
+                "mode": "DRY-RUN" if self.config.paper_mode else "LIVE"
             }
         }
     
@@ -892,13 +940,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
         </div>
         
         <div class="card" style="margin-top: 20px;">
-            <h2>Configuration</h2>
+            <h2>📊 COMPLETE STATISTICS</h2>
             <div class="detail">
-                <strong>Balance:</strong> $1,000.00<br>
-                <strong>Position Size:</strong> 50% ($500)<br>
+                <strong>Initial Balance:</strong> $10,000.00<br>
+                <strong>Current Balance:</strong> ${float(status['position'].get('current_balance', 10000)):,.2f}<br>
+                <strong>Total Return:</strong> {status['performance'].get('total_return_pct', '0.00%')}<br>
+                <br>
+                <strong>Total Trades:</strong> {status['performance']['total_trades']}<br>
+                <strong>Winning Trades:</strong> {status['performance'].get('winning_trades', 0)}<br>
+                <strong>Losing Trades:</strong> {status['performance'].get('losing_trades', 0)}<br>
+                <strong>Win Rate:</strong> {status['performance'].get('win_rate', '0.0%')}<br>
+                <br>
+                <strong>Average Win:</strong> {status['performance'].get('avg_win', '$0.00')}<br>
+                <strong>Average Loss:</strong> {status['performance'].get('avg_loss', '$0.00')}<br>
+                <br>
+                <strong>Position Allocation:</strong> 50% of balance<br>
                 <strong>Margin:</strong> 30%<br>
                 <strong>Effective Leverage:</strong> ~3.3x<br>
                 <strong>Symbol:</strong> BTCUSDT<br>
+                <strong>Mode:</strong> {status['configuration'].get('mode', 'DRY-RUN')}<br>
                 <strong>State File:</strong> {STATE_FILE}
             </div>
         </div>
@@ -1003,8 +1063,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         }, indent=2).encode())
 
 
-def run_webhook_server(port=8000):
-    """Run webhook server in separate thread"""
+def run_webhook_server(port=80):
+    """Run webhook server in separate thread on port 80"""
     server = HTTPServer(('0.0.0.0', port), WebhookHandler)
     logger.info(f"🚀 Webhook server on port {port}")
     server.serve_forever()
@@ -1013,7 +1073,7 @@ def run_webhook_server(port=8000):
 def run_dashboard_server(port=6000):
     """Run dashboard server in main thread"""
     server = HTTPServer(('0.0.0.0', port), DashboardHandler)
-    logger.info(f"📊 Dashboard on http://5.9.248.66:{port} (proxied via nginx on 8080)")
+    logger.info(f"📊 Dashboard on http://89.167.60.3:{port}")
     server.serve_forever()
 
 
@@ -1027,13 +1087,13 @@ if __name__ == "__main__":
     
     logger.info("=" * 60)
     logger.info("Mode: DRY-RUN (no real trades)")
-    logger.info("Webhook: http://5.9.248.66/webhook")
-    logger.info("Dashboard: http://5.9.248.66:8080 (→ proxied to port 6000)")
-    logger.info("API Status: http://5.9.248.66:8080/api/status")
+    logger.info("Webhook: http://89.167.60.3/webhook (port 80)")
+    logger.info("Dashboard: http://89.167.60.3:6000")
+    logger.info("API Status: http://89.167.60.3:6000/api/status")
     logger.info("=" * 60)
     
-    # Start webhook server in thread
-    webhook_thread = threading.Thread(target=run_webhook_server, args=(8000,), daemon=True)
+    # Start webhook server in thread on port 80
+    webhook_thread = threading.Thread(target=run_webhook_server, args=(80,), daemon=True)
     webhook_thread.start()
     
     # Start dashboard server in main thread
