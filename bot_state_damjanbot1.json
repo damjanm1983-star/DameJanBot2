@@ -1,0 +1,14 @@
+{
+  "bot_id": "damjanbot1",
+  "name": "DamjanBot1",
+  "timeframe": "5m",
+  "symbol": "BTCUSDT",
+  "side": "LONG",
+  "size": "0.2083333333333333333333333332",
+  "entry_price": "80000",
+  "realized_pnl": "0",
+  "trades_count": 1,
+  "last_trade_time": "2026-05-08T10:25:57.863763",
+  "last_alert_time": "2026-05-08T10:25:57.861311",
+  "last_alert_hash": "damjanbot1:buy:80000"
+}

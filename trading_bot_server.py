@@ -1070,7 +1070,7 @@ def run_webhook_server(port=80):
     server.serve_forever()
 
 
-def run_dashboard_server(port=6000):
+def run_dashboard_server(port=8080):
     """Run dashboard server in main thread"""
     server = HTTPServer(('0.0.0.0', port), DashboardHandler)
     logger.info(f"📊 Dashboard on http://89.167.60.3:{port}")
@@ -1088,17 +1088,17 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("Mode: DRY-RUN (no real trades)")
     logger.info("Webhook: http://89.167.60.3/webhook (port 80)")
-    logger.info("Dashboard: http://89.167.60.3:6000")
-    logger.info("API Status: http://89.167.60.3:6000/api/status")
+    logger.info("Dashboard: http://89.167.60.3:8080")
+    logger.info("API Status: http://89.167.60.3:8080/api/status")
     logger.info("=" * 60)
     
     # Start webhook server in thread on port 80
     webhook_thread = threading.Thread(target=run_webhook_server, args=(80,), daemon=True)
     webhook_thread.start()
     
-    # Start dashboard server in main thread
+    # Start dashboard server in main thread on port 8080
     try:
-        run_dashboard_server(6000)
+        run_dashboard_server(8080)
     except KeyboardInterrupt:
         logger.info("\n🛑 Server stopped")
         bot._save_state()

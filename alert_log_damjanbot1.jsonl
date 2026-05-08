@@ -1,0 +1,1 @@
+{"timestamp": "2026-05-08T10:25:57.864176", "bot": "DamjanBot1", "alert": {"action": "buy", "symbol": "BTCUSDT", "price": 80000, "strategy": "v1"}, "result": {"success": true, "order_id": "DRY_1778235957861_1", "status": "opened", "simulated": true, "bot": "DamjanBot1", "side": "LONG"}, "position_before": "LONG"}

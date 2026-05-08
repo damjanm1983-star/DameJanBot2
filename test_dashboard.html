@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DamJanBot - Test Dashboard</title>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; background: #0a0e27; color: #fff; padding: 20px; }
+        h1 { color: #00d4aa; }
+        .status { padding: 20px; background: #151b3d; border-radius: 10px; margin: 20px 0; }
+        .ok { color: #00d4aa; }
+        .error { color: #ff6b6b; }
+        button { padding: 10px 20px; background: #00d4aa; color: #000; border: none; border-radius: 5px; cursor: pointer; }
+        #output { margin-top: 20px; padding: 15px; background: #1a1f3d; border-radius: 5px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>🤖 DamJanBot Dashboard Test</h1>
+    <div class="status">
+        <h2>Connection Test</h2>
+        <p>Server: <strong>89.167.60.3</strong></p>
+        <p>Dashboard Port: <strong>6000</strong></p>
+        <p>Webhook Port: <strong>80</strong></p>
+        <button onclick="testConnection()">Test Connection</button>
+        <button onclick="fetchStatus()">Fetch Status</button>
+        <div id="output"></div>
+    </div>
+
+    <script>
+        async function testConnection() {
+            const output = document.getElementById('output');
+            output.innerHTML = 'Testing...\n';
+            
+            try {
+                const start = Date.now();
+                const response = await fetch('http://89.167.60.3:6000/api/status');
+                const elapsed = Date.now() - start;
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    output.innerHTML += `<span class="ok">✅ Connected in ${elapsed}ms</span>\n\n`;
+                    output.innerHTML += `Position: ${data.position.side}\n`;
+                    output.innerHTML += `Balance: ${data.performance.current_balance}\n`;
+                    output.innerHTML += `Total PnL: ${data.performance.total_pnl}\n`;
+                    output.innerHTML += `Win Rate: ${data.performance.win_rate}\n`;
+                } else {
+                    output.innerHTML += `<span class="error">❌ HTTP ${response.status}</span>\n`;
+                }
+            } catch (error) {
+                output.innerHTML += `<span class="error">❌ Error: ${error.message}</span>\n`;
+                output.innerHTML += `\nPossible causes:\n`;
+                output.innerHTML += `- Firewall blocking port 6000\n`;
+                output.innerHTML += `- Browser security (try different browser)\n`;
+                output.innerHTML += `- Network restrictions\n`;
+            }
+        }
+
+        async function fetchStatus() {
+            const output = document.getElementById('output');
+            output.innerHTML = 'Fetching full status...\n';
+            
+            try {
+                const response = await fetch('http://89.167.60.3:6000/api/status');
+                const data = await response.json();
+                output.innerHTML = JSON.stringify(data, null, 2);
+            } catch (error) {
+                output.innerHTML += `<span class="error">❌ Error: ${error.message}</span>\n`;
+            }
+        }
+    </script>
+</body>
+</html>
