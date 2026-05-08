@@ -309,9 +309,20 @@ class BotInstance:
             logger.warning(f"Could not fetch BTC price: {e}")
         return Decimal("80000")  # Fallback
     
+    def _get_current_btc_price_with_timeout(self, timeout_seconds: int = 3) -> Decimal:
+        """Fetch BTC price with timeout to prevent blocking"""
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(self._get_current_btc_price)
+            try:
+                return future.result(timeout=timeout_seconds)
+            except concurrent.futures.TimeoutError:
+                logger.warning("BTC price fetch timed out, using cached/fallback price")
+                return Decimal("80000")
+    
     def get_status(self) -> Dict[str, Any]:
         # Get current BTC price from Binance for live PnL
-        current_price = self._get_current_btc_price()
+        current_price = self._get_current_btc_price_with_timeout()
         unrealized_pnl = self._calculate_unrealized_pnl(current_price)
         total_pnl = self.realized_pnl + unrealized_pnl
         
@@ -526,7 +537,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         <html>
         <head>
             <title>DamJanBot - Multi Bot Dashboard</title>
-            <meta http-equiv="refresh" content="10">
+            <meta http-equiv="refresh" content="30">
             <style>
                 body { font-family: Arial; background: #0a0e27; color: white; padding: 40px; }
                 h1 { color: #00d4aa; }
@@ -628,7 +639,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         <html>
         <head>
             <title>{bot.name} Dashboard</title>
-            <meta http-equiv="refresh" content="5">
+            <meta http-equiv="refresh" content="30">
             <style>
                 body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #0a0e27; color: white; padding: 20px; margin: 0; }}
                 .container {{ max-width: 1200px; margin: 0 auto; }}
