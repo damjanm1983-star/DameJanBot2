@@ -1,16 +1,25 @@
+# State files (auto-generated)
+bot_state_*.json
+alert_log_*.jsonl
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+
+# Virtual environments
 venv/
 env/
 ENV/
 
+# Environment variables
+.env
+
 # Logs
 *.log
-logs/
+/tmp/*.log
 
 # IDE
 .vscode/
@@ -21,7 +30,3 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
-
-# Temporary files
-*.tmp
-*.bak
